@@ -97,6 +97,8 @@ def main():
     
     # Refresh Button
     if st.button("🔄 Refrescar Datos"):
+        if 'data' in st.session_state:
+            del st.session_state['data']
         st.cache_data.clear()
         st.rerun()
 

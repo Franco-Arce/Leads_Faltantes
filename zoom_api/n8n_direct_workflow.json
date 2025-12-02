@@ -1,0 +1,263 @@
+{
+    "name": "Zoom Data Extraction - Detailed Participants",
+    "nodes": [
+        {
+            "parameters": {
+                "rule": {
+                    "interval": [
+                        {
+                            "field": "cronExpression",
+                            "expression": "0 8 * * *"
+                        }
+                    ]
+                }
+            },
+            "id": "schedule-trigger",
+            "name": "Schedule Trigger",
+            "type": "n8n-nodes-base.scheduleTrigger",
+            "typeVersion": 1.1,
+            "position": [
+                200,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "jsCode": "return [\n  { json: { email: 'docente1@cesa.edu.co' } },\n  { json: { email: 'docente2@cesa.edu.co' } },\n  { json: { email: 'docente3@cesa.edu.co' } },\n  { json: { email: 'docente4@cesa.edu.co' } },\n  { json: { email: 'docente5@cesa.edu.co' } },\n  { json: { email: 'docente6@cesa.edu.co' } }\n];"
+            },
+            "id": "define-teachers",
+            "name": "Definir Docentes",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                400,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "options": {}
+            },
+            "id": "loop-teachers",
+            "name": "Loop Docentes",
+            "type": "n8n-nodes-base.splitInBatches",
+            "typeVersion": 3,
+            "position": [
+                600,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "url": "=https://api.zoom.us/v2/users/{{ $json.email }}",
+                "authentication": "predefinedCredentialType",
+                "nodeCredentialType": "zoomOAuth2Api",
+                "options": {}
+            },
+            "id": "get-user-details",
+            "name": "Obtener Detalles Usuario",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.1,
+            "position": [
+                800,
+                300
+            ],
+            "credentials": {
+                "zoomOAuth2Api": {
+                    "id": "YOUR_CREDENTIAL_ID",
+                    "name": "Zoom Server-to-Server Account"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "url": "=https://api.zoom.us/v2/report/users/{{ $('Loop Docentes').item.json.email }}/meetings",
+                "authentication": "predefinedCredentialType",
+                "nodeCredentialType": "zoomOAuth2Api",
+                "qs": {
+                    "from": "={{ new Date(new Date().setDate(new Date().getDate() - 30)).toISOString().split('T')[0] }}",
+                    "to": "={{ new Date().toISOString().split('T')[0] }}",
+                    "page_size": "300"
+                },
+                "options": {}
+            },
+            "id": "get-past-meetings",
+            "name": "Obtener Reuniones Pasadas",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.1,
+            "position": [
+                1000,
+                300
+            ],
+            "credentials": {
+                "zoomOAuth2Api": {
+                    "id": "YOUR_CREDENTIAL_ID",
+                    "name": "Zoom Server-to-Server Account"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "fieldToSplitOut": "meetings",
+                "options": {}
+            },
+            "id": "split-meetings",
+            "name": "Separar Reuniones",
+            "type": "n8n-nodes-base.itemLists",
+            "typeVersion": 3,
+            "position": [
+                1200,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "url": "=https://api.zoom.us/v2/report/meetings/{{ $json.uuid }}/participants",
+                "authentication": "predefinedCredentialType",
+                "nodeCredentialType": "zoomOAuth2Api",
+                "qs": {
+                    "page_size": "300"
+                },
+                "options": {}
+            },
+            "id": "get-participants",
+            "name": "Obtener Participantes",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.1,
+            "position": [
+                1400,
+                300
+            ],
+            "credentials": {
+                "zoomOAuth2Api": {
+                    "id": "YOUR_CREDENTIAL_ID",
+                    "name": "Zoom Server-to-Server Account"
+                }
+            },
+            "onError": "continueErrorOutput"
+        },
+        {
+            "parameters": {
+                "jsCode": "// Combinar datos de Usuario, Reunión y Participantes\nconst user = $('Obtener Detalles Usuario').first().json;\nconst meeting = $('Separar Reuniones').item.json;\nconst participants = items.map(item => item.json.participants).flat().filter(p => p); // Flatten and remove empty\n\nconst results = [];\n\nif (participants.length === 0) {\n  // Si no hay participantes, crear una fila solo con datos de la reunión (opcional)\n  // O simplemente no retornar nada para esta reunión\n  return [];\n}\n\nfor (const p of participants) {\n  results.push({\n    'Tema': meeting.topic,\n    'Tipo': meeting.type,\n    'ID': meeting.id,\n    'Nombre del anfitrión': user.first_name + ' ' + user.last_name,\n    'Correo electrónico del anfitrión': user.email,\n    'Hora de inicio': meeting.start_time,\n    'Hora de finalización': meeting.end_time,\n    'Participantes': meeting.participants_count,\n    'Duración (minutos)': meeting.duration,\n    'Total de minutos de los participantes': meeting.total_minutes,\n    'Departamento': user.dept,\n    'Grupo': user.group_ids ? user.group_ids.join(', ') : '',\n    'Fuente': 'Zoom',\n    'Espectadores únicos': '-', // No disponible en reporte estándar de reuniones\n    'Vistas simultáneas máximas': '-', // No disponible en reporte estándar de reuniones\n    'Fecha de creación': meeting.created_at,\n    'Nombre (nombre original)': p.name,\n    'Correo electrónico': p.user_email,\n    'Hora de entrada': p.join_time\n  });\n}\n\nreturn results;"
+            },
+            "id": "merge-data",
+            "name": "Combinar Datos",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                1600,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "options": {}
+            },
+            "id": "aggregate",
+            "name": "Agregar Todo",
+            "type": "n8n-nodes-base.aggregate",
+            "typeVersion": 1,
+            "position": [
+                1800,
+                300
+            ]
+        }
+    ],
+    "connections": {
+        "Schedule Trigger": {
+            "main": [
+                [
+                    {
+                        "node": "Definir Docentes",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Definir Docentes": {
+            "main": [
+                [
+                    {
+                        "node": "Loop Docentes",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Loop Docentes": {
+            "main": [
+                [
+                    {
+                        "node": "Obtener Detalles Usuario",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Agregar Todo",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Obtener Detalles Usuario": {
+            "main": [
+                [
+                    {
+                        "node": "Obtener Reuniones Pasadas",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Obtener Reuniones Pasadas": {
+            "main": [
+                [
+                    {
+                        "node": "Separar Reuniones",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Separar Reuniones": {
+            "main": [
+                [
+                    {
+                        "node": "Obtener Participantes",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Obtener Participantes": {
+            "main": [
+                [
+                    {
+                        "node": "Combinar Datos",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Combinar Datos": {
+            "main": [
+                [
+                    {
+                        "node": "Loop Docentes",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    }
+}

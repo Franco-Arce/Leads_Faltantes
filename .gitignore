@@ -25,3 +25,6 @@ dist-ssr
 
 # Streamlit secrets
 .streamlit/secrets.toml
+
+# Zoom API secrets
+zoom_api/.env

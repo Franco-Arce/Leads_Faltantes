@@ -35,6 +35,8 @@ def fetch_data_from_uni(uni_name, config):
         # Filtrar solo leads de la semana actual (desde el lunes hasta hoy)
         query = """
             SELECT * FROM faltantes_neotel
+            WHERE fecha >= date_trunc('week', CURRENT_DATE)
+            AND fecha <= CURRENT_DATE
         """
         df = pd.read_sql_query(query, conn)
         
